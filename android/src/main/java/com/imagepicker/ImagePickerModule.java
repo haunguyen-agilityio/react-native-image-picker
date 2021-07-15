@@ -4,6 +4,7 @@ import android.Manifest;
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
 import android.content.Context;
+import android.content.ContentResolver;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.pm.ResolveInfo;
@@ -69,6 +70,7 @@ public class ImagePickerModule extends ReactContextBaseJavaModule
   public static final int REQUEST_LAUNCH_IMAGE_LIBRARY    = 13002;
   public static final int REQUEST_LAUNCH_VIDEO_LIBRARY    = 13003;
   public static final int REQUEST_LAUNCH_VIDEO_CAPTURE    = 13004;
+  public static final int REQUEST_LAUNCH_LIBRARY    = 13005;
   public static final int REQUEST_PERMISSIONS_FOR_CAMERA  = 14001;
   public static final int REQUEST_PERMISSIONS_FOR_LIBRARY = 14002;
 
@@ -149,6 +151,16 @@ public class ImagePickerModule extends ReactContextBaseJavaModule
   @Override
   public String getName() {
     return NAME;
+  }
+
+  public boolean isImageType(Uri uri, Context context) {
+    ContentResolver contentResolver = context.getContentResolver();
+    return contentResolver.getType(uri).contains("image/");
+  }
+
+  public boolean isVideoType(Uri uri, Context context) {
+    ContentResolver contentResolver = context.getContentResolver();
+    return contentResolver.getType(uri).contains("video/");
   }
 
   @ReactMethod
@@ -344,21 +356,26 @@ public class ImagePickerModule extends ReactContextBaseJavaModule
 
     int requestCode;
     Intent libraryIntent;
+    requestCode = REQUEST_LAUNCH_LIBRARY;
+
     if (pickVideo)
     {
-      requestCode = REQUEST_LAUNCH_VIDEO_LIBRARY;
       libraryIntent = new Intent(Intent.ACTION_PICK);
       libraryIntent.setType("video/*");
     }
     else
     {
-      requestCode = REQUEST_LAUNCH_IMAGE_LIBRARY;
-      libraryIntent = new Intent(Intent.ACTION_PICK,
-      MediaStore.Images.Media.EXTERNAL_CONTENT_URI);
-
-      if (pickBoth) 
+      if (pickBoth)
       {
-        libraryIntent.setType("image/* video/*");
+        libraryIntent = new Intent(Intent.ACTION_GET_CONTENT);
+        libraryIntent.setType("*/*");
+        libraryIntent.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"image/*", "video/*"});
+        libraryIntent.addCategory(Intent.CATEGORY_OPENABLE);
+      }
+      else
+      {
+        libraryIntent = new Intent(Intent.ACTION_PICK);
+        libraryIntent.setType("image/*");
       }
     }
 
@@ -409,6 +426,46 @@ public class ImagePickerModule extends ReactContextBaseJavaModule
     {
       case REQUEST_LAUNCH_IMAGE_CAPTURE:
         uri = cameraCaptureURI;
+        break;
+
+      case REQUEST_LAUNCH_LIBRARY:
+        uri = data.getData();
+        if (isImageType(uri, reactContext)) {
+          String realPath = getRealPathFromURI(uri);
+          final boolean isUrl = !TextUtils.isEmpty(realPath) &&
+                  Patterns.WEB_URL.matcher(realPath).matches();
+          if (realPath == null || isUrl)
+          {
+            try
+            {
+              File file = createFileFromURI(uri);
+              realPath = file.getAbsolutePath();
+              uri = Uri.fromFile(file);
+            }
+            catch (Exception e)
+            {
+              // image not in cache
+              responseHelper.putString("error", "Could not read photo");
+              responseHelper.putString("uri", uri.toString());
+              responseHelper.invokeResponse(callback);
+              callback = null;
+              return;
+            }
+          }
+          imageConfig = imageConfig.withOriginalFile(new File(realPath));
+        } else if (isVideoType(uri, reactContext)) {
+          responseHelper.putString("uri", data.getData().toString());
+          responseHelper.putString("path", getRealPathFromURI(data.getData()));
+          responseHelper.invokeResponse(callback);
+          callback = null;
+        } else {
+            // This could happen in rarest case when mediaType is mixed and the user selects some other file type like contacts etc, ideally these file options should not be shown by android
+            responseHelper.putString("error", "Unsupported file type");
+            responseHelper.putString("uri", uri.toString());
+            responseHelper.invokeResponse(callback);
+            callback = null;
+            return;
+        }
         break;
 
       case REQUEST_LAUNCH_IMAGE_LIBRARY:
@@ -551,7 +608,7 @@ public class ImagePickerModule extends ReactContextBaseJavaModule
   {
     return callback == null || (cameraCaptureURI == null && requestCode == REQUEST_LAUNCH_IMAGE_CAPTURE)
             || (requestCode != REQUEST_LAUNCH_IMAGE_CAPTURE && requestCode != REQUEST_LAUNCH_IMAGE_LIBRARY
-            && requestCode != REQUEST_LAUNCH_VIDEO_LIBRARY && requestCode != REQUEST_LAUNCH_VIDEO_CAPTURE);
+            && requestCode != REQUEST_LAUNCH_VIDEO_LIBRARY && requestCode != REQUEST_LAUNCH_VIDEO_CAPTURE && requestCode != REQUEST_LAUNCH_LIBRARY);
   }
 
   private void updatedResultResponse(@Nullable final Uri uri,
