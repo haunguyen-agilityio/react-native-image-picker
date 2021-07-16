@@ -368,7 +368,7 @@ public class ImagePickerModule extends ReactContextBaseJavaModule
       if (pickBoth)
       {
         libraryIntent = new Intent(Intent.ACTION_GET_CONTENT);
-        libraryIntent.setType("*/*");
+        libraryIntent.setType("video/*, image/*");
         libraryIntent.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"image/*", "video/*"});
         libraryIntent.addCategory(Intent.CATEGORY_OPENABLE);
       }
@@ -458,6 +458,7 @@ public class ImagePickerModule extends ReactContextBaseJavaModule
           responseHelper.putString("path", getRealPathFromURI(data.getData()));
           responseHelper.invokeResponse(callback);
           callback = null;
+          return;
         } else {
             // This could happen in rarest case when mediaType is mixed and the user selects some other file type like contacts etc, ideally these file options should not be shown by android
             responseHelper.putString("error", "Unsupported file type");
